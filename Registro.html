@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro Profesional de Llamadas</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #eef2f7; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        
+        h2 { color: #1a73e8; margin-top: 0; border-bottom: 2px solid #eef2f7; padding-bottom: 15px; }
+        .status-bar { font-size: 0.85em; color: #666; margin-bottom: 20px; text-align: right; }
+
+        .grid-form { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .full-width { grid-column: span 2; }
+
+        label { display: block; font-weight: 600; margin-bottom: 8px; color: #333; }
+        input { width: 100%; padding: 12px; border: 1px solid #ced4da; border-radius: 6px; box-sizing: border-box; font-size: 15px; transition: border-color 0.2s; }
+        input:focus { border-color: #1a73e8; outline: none; background-color: #f8fbff; }
+        input[readonly] { background-color: #f1f3f4; color: #5f6368; font-style: italic; }
+
+        /* Botones de respuesta rápida */
+        .action-area { margin-top: 25px; }
+        .button-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        .btn-fast { padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 5px; }
+        
+        .btn-info { background-color: #1a73e8; }
+        .btn-success { background-color: #1e8e3e; }
+        .btn-warning { background-color: #f9ab00; }
+        .btn-fast:hover { filter: brightness(90%); }
+        .btn-fast:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        .loading-text { color: #1a73e8; font-weight: bold; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="status-bar" id="statusServer">Conectando con la base de datos central...</div>
+    <h2>📞 Registro de Llamadas Telefónicas</h2>
+    
+    <div class="grid-form">
+        <div class="full-width">
+            <label for="inputAcronimo">Acrónimo de la Empresa:</label>
+            <input type="text" id="inputAcronimo" list="lista-empresas" placeholder="Escribe el acrónimo (Ej: GGL, MSFT)..." oninput="rellenarCampos()">
+            <datalist id="lista-empresas"></datalist>
+            <span id="loader" class="loading-text">Buscando en la nube...</span>
+        </div>
+
+        <div>
+            <label>Nombre del Contacto:</label>
+            <input type="text" id="nombre" readonly placeholder="Auto-completado">
+        </div>
+        <div>
+            <label>Teléfono:</label>
+            <input type="text" id="telefono" readonly placeholder="Auto-completado">
+        </div>
+        <div class="full-width">
+            <label>Correo Electrónico:</label>
+            <input type="text" id="email" readonly placeholder="Auto-completado">
+        </div>
+    </div>
+
+    <div class="action-area">
+        <label>Finalizar llamada con motivo:</label>
+        <div class="button-group">
+            <button class="btn-fast btn-info" onclick="registrarLlamada('Solicitud Info')"><span>ℹ️</span> INFORMACIÓN</button>
+            <button class="btn-fast btn-success" onclick="registrarLlamada('Venta/Cita')"><span>✅</span> VENTA/CITA</button>
+            <button class="btn-fast btn-warning" onclick="registrarLlamada('Soporte')"><span>🔧</span> SOPORTE</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURACIÓN ---
+    // Pega aquí la URL que te dé Google Apps Script al publicar
+    const WEB_APP_URL = "TU_URL_DE_GOOGLE_APPS_SCRIPT_AQUI";
+    
+    let directorioGlobal = {};
+
+    // 1. CARGAR DATOS AL INICIAR LA PÁGINA
+    window.onload = async () => {
+        const status = document.getElementById('statusServer');
+        try {
+            const response = await fetch(WEB_APP_URL);
+            directorioGlobal = await response.json();
+            
+            // Llenar el datalist con las sugerencias
+            const datalist = document.getElementById('lista-empresas');
+            Object.keys(directorioGlobal).forEach(acronimo => {
+                let option = document.createElement('option');
+                option.value = acronimo;
+                option.textContent = `Empresa: ${acronimo}`;
+                datalist.appendChild(option);
+            });
+
+            status.innerText = "🟢 Base de datos sincronizada";
+            status.style.color = "green";
+        } catch (error) {
+            status.innerText = "🔴 Error de conexión. Usando modo local.";
+            status.style.color = "red";
+        }
+    };
+
+    // 2. LÓGICA DE AUTO-RELLENO
+    function rellenarCampos() {
+        const acro = document.getElementById('inputAcronimo').value.toUpperCase();
+        const campos = {
+            nombre: document.getElementById('nombre'),
+            tel: document.getElementById('telefono'),
+            email: document.getElementById('email')
+        };
+
+        if (directorioGlobal[acro]) {
+            campos.nombre.value = directorioGlobal[acro].contacto;
+            campos.tel.value = directorioGlobal[acro].tel;
+            campos.email.value = directorioGlobal[acro].email;
+        } else {
+            campos.nombre.value = "";
+            campos.tel.value = "";
+            campos.email.value = "";
+        }
+    }
+
+    // 3. ENVIAR REGISTRO A GOOGLE SHEETS (CONCURRENCIA)
+    async function registrarLlamada(motivo) {
+        const acronimo = document.getElementById('inputAcronimo').value;
+        
+        if (!acronimo) {
+            alert("Primero identifica la empresa.");
+            return;
+        }
+
+        const datos = {
+            acronimo: acronimo,
+            motivo: motivo,
+            operador: "Estación_01" // Puedes cambiar esto por nombre de operador
+        };
+
+        // UI: Desactivar botones para evitar registros dobles
+        document.querySelectorAll('.btn-fast').forEach(b => b.disabled = true);
+        document.getElementById('statusServer').innerText = "Guardando llamada...";
+
+        try {
+            await fetch(WEB_APP_URL, {
+                method: 'POST',
+                mode: 'no-cors', // Importante para Google Scripts
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(datos)
+            });
+
+            alert("✅ Registro guardado exitosamente");
+        } catch (e) {
+            alert("Error al guardar en la nube.");
+        } finally {
+            // Limpiar y reactivar
+            document.getElementById('inputAcronimo').value = "";
+            rellenarCampos();
+            document.querySelectorAll('.btn-fast').forEach(b => b.disabled = false);
+            document.getElementById('statusServer').innerText = "🟢 Base de datos sincronizada";
+        }
+    }
+</script>
+
+</body>
+</html>
